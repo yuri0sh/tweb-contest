@@ -1877,9 +1877,6 @@ export default class AppMediaViewerBase<
                 }
               },
               onPipClose: () => {
-                // this.target = undefined;
-                // this.toggleWholeActive(false);
-                // this.toggleOverlay(false);
                 this.close();
               }
             });
