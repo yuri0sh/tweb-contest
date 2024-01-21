@@ -69,7 +69,7 @@ export default class ChatCallJoin extends PinnedContainer {
     dac.subtitle.appendChild(i18n('LiveStream.Bar.Watching', [0]));
 
     this.topbar.listenerSetter.add(rootScope)('chat_update', this.onChatUpdate);
-    // this.topbar.listenerSetter.add(rootScope)('group_call_update', this.onChatUpdate);
+    this.topbar.listenerSetter.add(rootScope)('group_call_update', () => this.onChatUpdate(this.peerId));
 
     const attachClick = (elem: HTMLElement, callback: () => void) => {
       attachClickEvent(elem, (e) => {

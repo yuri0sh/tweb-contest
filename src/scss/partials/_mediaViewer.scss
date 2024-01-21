@@ -291,14 +291,38 @@ $inactive-opacity: .4;
     }
 
     .ckin__player {
-      border-radius: 10px;
-      overflow: hidden;
       width: 100%;
       height: 100%;
       position: absolute;
       left: 0;
       top: 0;
       &.live {
+        .default__controls > .progress-line {
+          display: none;
+        }
+        .view-counter {
+          font-size: 14px;
+          color: white;
+          margin: 6px;
+        }
+        .bottom-controls {
+          padding-bottom: 8px;
+        }
+        .live-icon {
+          margin: 4px;
+          border-radius: 1999px;
+          color: white;
+          // width: 100px;
+          // height: 40px;
+          letter-spacing: -0.4px;
+          padding: 2px 7px;
+          font-size: 13px;
+          font-weight: 500;
+          z-index: 10000000;
+          background: linear-gradient(75.19deg, #4588E3 -79.42%, #976FFF 20.35%, #E46ACE 100.03%), linear-gradient(0deg, #EA3323, #EA3323);
+        }
+        border-radius: 10px;
+        overflow: hidden;
         .time {
           display: none;
         }

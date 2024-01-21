@@ -1827,7 +1827,7 @@ export default class AppSearchSuper {
       // ! Фикс случая, когда не загружаются документы при открытой панели разработчиков (происходит из-за того, что не совпадают критерии отбора документов в getSearch)
       if(
         value.history.length < loadCount ||
-        (this.searchContext.folderId !== undefined && !value.nextRate) ||
+        (this.searchContext?.folderId !== undefined && !value.nextRate) ||
         // value.history.length === value.count
         value.isEnd.top
       ) {

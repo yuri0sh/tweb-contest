@@ -25,7 +25,7 @@ import ProgressivePreloader from './preloader';
 import SwipeHandler, {ZoomDetails} from './swipeHandler';
 import {formatFullSentTime} from '../helpers/date';
 import appNavigationController, {NavigationItem} from './appNavigationController';
-import {InputFileLocation, InputGroupCall, Message, PhotoSize} from '../layer';
+import {GroupCall, GroupCallStreamChannel, InputFileLocation, InputGroupCall, Message, PhoneGroupCallStreamChannels, PhotoSize} from '../layer';
 import findUpClassName from '../helpers/dom/findUpClassName';
 import renderImageFromUrl, {renderImageFromUrlPromise} from '../helpers/dom/renderImageFromUrl';
 import getVisibleRect from '../helpers/dom/getVisibleRect';
@@ -1706,38 +1706,75 @@ export default class AppMediaViewerBase<
         const ssrc = (Math.random() * 10_000) | 0;
         const defaultInitString = JSON.stringify({'fingerprints': [], 'pwd': '', ssrc, 'ssrc-groups': [], 'ufrag': ''});
         await this.managers.appGroupCallsManager.joinGroupCall(media.id, {_:'dataJSON', data: defaultInitString}, {'type': 'main'})
-        const ret = await this.managers.appGroupCallsManager.getGroupCallStreamChannels(media.id);
-        const input = media;
-        const requestChunk = async(time: number) => {
-          const i = 0;
-          const test: InputFileLocation.inputGroupCallStream = {_: 'inputGroupCallStream', call: input, time_ms: (ret.channels[i].last_timestamp_ms as number) + time, scale: ret.channels[i].scale, video_quality: 2, video_channel: ret.channels[i].channel};
-          try {
-            const file = await this.managers.apiFileManager.requestFilePart(2, test, 0, 1_048_576);
-            // document.createElement('video').src = URL.createObjectURL((window as any).file);
-            return file.bytes;
-          } catch(e) {
-            console.log(e);
-            return null;
-          }
+        let ret: PhoneGroupCallStreamChannels.phoneGroupCallStreamChannels, channel: GroupCallStreamChannel.groupCallStreamChannel, unit: number;
+        const fetchChannel = async() => {
+          ret = await this.managers.appGroupCallsManager.getGroupCallStreamChannels(media.id);
+          channel = ret.channels.find((c) => c.channel === 1) ?? ret.channels[0];
+          unit = channel.scale >= 0 ? 1000 >> channel.scale : 1000 << -channel.scale;
         }
+        await fetchChannel();
+
+        let dcid = 2;
+        this.managers.appGroupCallsManager.getGroupCall(media.id).then((gcall) => {
+          if(gcall._ === 'groupCall') {
+            dcid = gcall.stream_dc_id;
+          }
+        })
+        const input = media;
+        let time = 0;
+        let quality = 2;
+        const requestChunk = async(timeI: number) => {
+          const test: InputFileLocation.inputGroupCallStream = {_: 'inputGroupCallStream', call: input, time_ms: (channel.last_timestamp_ms as number) + timeI, scale: channel.scale, video_quality: 2, video_channel: channel.channel};
+          const file = await this.managers.apiFileManager.requestFilePart(dcid, test, 0, 1_048_576);
+          // document.createElement('video').src = URL.createObjectURL((window as any).file);
+          return file.bytes;
+        }
+
+        let queueSize = 0;
+        let flag: number = null;
 
         mse.onsourceopen = () => {
           const source = mse.addSourceBuffer('video/mp4; codecs="avc1.64001f, opus"');
           source.mode = 'sequence';
           let init = true;
           let lastLoaded = -1;
-          const setVideoSrc = async(time: number) => {
+          const setVideoSrc = async(timeInt: number) => {
             if(video.src !== url) {
               clearInterval(interval);
               this.managers.appGroupCallsManager.hangUp(media.id, ssrc);
               return;
             }
-            const buffer = await requestChunk(time);
-            console.log('GOT BUFFER ', time, buffer);
+            if(queueSize === 3) {
+              time--;
+              flag = timeInt;
+              if(flag) {
+                quality = 1;
+              }
+            } else {
+              flag = null;
+            }
+            if(time < lastLoaded) {return};
+            let buffer;
+            try {
+              queueSize++;
+              buffer = await requestChunk(timeInt);
+            } catch(e: any) {
+              if(e.type === 'TIME_TOO_BIG') {
+                time--;
+              }
+              if(e.type === 'TIME_TOO_SMALL') {
+                fetchChannel().then(() => time = 0);
+              }
+              console.log('LIVE STREAM ERROR: ', e);
+              return;
+            } finally {
+              queueSize--;
+            }
+            // console.log('GOT BUFFER ', timeInt, buffer);
             const blob = new Blob([buffer.slice(32)], {type: 'video/mp4'});
             const mp4: any = new MP4(URL.createObjectURL(blob));
             mp4.on('moovReady', () => {
-              console.log('PARSED ', time, mp4.packMeta())
+              // console.log('PARSED ', time, mp4.packMeta())
               if(init) {
                 init = false;
                 source.appendBuffer(mp4.packMeta());
@@ -1746,7 +1783,7 @@ export default class AppMediaViewerBase<
                 if(time < lastLoaded) {return};
                 const act = () => {
                   lastLoaded = time;
-                  console.log('APPENDING ', time, res);
+                  // console.log('APPENDING ', time, res);
                   source.appendBuffer(res);
                 }
                 if(source.updating) {
@@ -1759,8 +1796,7 @@ export default class AppMediaViewerBase<
             });
           }
 
-          let time = 0;
-          const interval = setInterval(async() => setVideoSrc(time++ * 1000), 1000);
+          const interval = setInterval(async() => setVideoSrc(time++ * unit), unit);
         }
 
         // * fix for playing video if viewer is closed (https://contest.com/javascript-web-bonus/entry1425#issue11629)
@@ -1847,6 +1883,16 @@ export default class AppMediaViewerBase<
                 this.close();
               }
             });
+
+
+            const lsnr = (e: GroupCall) => {
+              if(e._ !== 'groupCall' || e.id !== media.id) return;
+              if(!video.src) rootScope.removeEventListener('group_call_update', lsnr);
+              this.videoPlayer.setViewersCount(e.participants_count ?? 1);
+            };
+            this.managers.appGroupCallsManager.getGroupCallFull(media.id).then(lsnr);
+            rootScope.addEventListener('group_call_update', lsnr);
+
             player.addEventListener('toggleControls', (show) => {
               this.wholeDiv.classList.toggle('has-video-controls', show);
             });

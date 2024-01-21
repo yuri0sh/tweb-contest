@@ -25,6 +25,8 @@ import ButtonIcon from '../components/buttonIcon';
 import Button from '../components/button';
 import Icon from '../components/icon';
 import setCurrentTime from '../helpers/dom/setCurrentTime';
+import {i18n} from './langPack';
+import rootScope from './rootScope';
 
 export default class VideoPlayer extends ControlsHover {
   private static PLAYBACK_RATES = [0.5, 1, 1.5, 2];
@@ -48,6 +50,8 @@ export default class VideoPlayer extends ControlsHover {
   protected onPlaybackRackMenuToggle?: (open: boolean) => void;
   protected onPip?: (pip: boolean) => void;
   protected onPipClose?: () => void;
+
+  public setViewersCount = (count: number) => {};
 
   constructor({
     video,
@@ -156,18 +160,29 @@ export default class VideoPlayer extends ControlsHover {
       wrapper.firstElementChild.after(mainToggle);
 
       const leftControls = wrapper.querySelector('.left-controls') as HTMLElement;
-      const leftToggle = ButtonIcon(` ${skin}__button toggle`, {noRipple: true});
-      leftControls.prepend(leftToggle);
+      let leftToggle;
+      if(this.livestream) {
+        const liveIcon = document.createElement('div');
+        liveIcon.classList.add('live-icon');
+        liveIcon.append(i18n('LiveStream.MediaViewer.Live'))
+        leftControls.prepend(liveIcon);
+      } else {
+        leftToggle = ButtonIcon(` ${skin}__button toggle`, {noRipple: true});
+        leftControls.prepend(leftToggle);
+      }
+      // const leftToggle = ButtonIcon(` ${skin}__button toggle`, {noRipple: true});
 
       const rightControls = wrapper.querySelector('.right-controls') as HTMLElement;
-      if(!this.livestream) this.playbackRateButton = ButtonIcon(` ${skin}__button btn-menu-toggle night`, {noRipple: true});
+      this.playbackRateButton = ButtonIcon(` ${skin}__button btn-menu-toggle night`, {noRipple: true});
+      if(this.livestream) this.playbackRateButton.classList.add('hide');
       if(!IS_MOBILE && document.pictureInPictureEnabled) {
         this.pipButton = ButtonIcon(`pip ${skin}__button`, {noRipple: true});
       }
+      debugger
       const fullScreenButton = ButtonIcon(` ${skin}__button`, {noRipple: true});
       rightControls.append(...[this.playbackRateButton, this.pipButton, fullScreenButton].filter(Boolean));
 
-      const toggles = this.toggles = [leftToggle];
+      const toggles = this.toggles = [leftToggle].filter(Boolean);
       const timeElapsed = wrapper.querySelector('#time-elapsed');
       timeDuration = wrapper.querySelector('#time-duration') as HTMLElement;
       timeDuration.textContent = toHHMMSS(video.duration | 0);
@@ -176,6 +191,16 @@ export default class VideoPlayer extends ControlsHover {
 
       volumeSelector.btn.classList.remove('btn-icon');
       leftControls.insertBefore(volumeSelector.btn, timeElapsed.parentElement);
+
+      if(this.livestream) {
+        const viewCounter = i18n('LiveStream.Bar.Watching', [0]);
+        viewCounter.classList.add('view-counter');
+        leftControls.append(viewCounter);
+        this.setViewersCount = (count) => {
+          debugger;
+          viewCounter.textContent = i18n('LiveStream.Bar.Watching', [count]).textContent;
+        }
+      }
 
       toggles.forEach((button) => {
         attachClickEvent(button, () => {

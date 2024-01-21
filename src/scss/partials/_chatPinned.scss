@@ -606,6 +606,7 @@ body.is-right-column-shown .pinned-call-highlight {
 
 .pinned-call {
   --container-height: var(--pinned-call-height);
+  --font-size: 14px;
 
   .pinned-call-btn {
     padding: 5px 9px;
@@ -647,6 +648,9 @@ body.is-right-column-shown .pinned-call-highlight {
     overflow: hidden;
     width: 100%;
     max-width: calc(100% - 0px);
+    body.animation-level-0 & {
+      transition: none;
+    }
     transition: max-width var(--transition-standard-in);
     align-items: center;
     position: relative;

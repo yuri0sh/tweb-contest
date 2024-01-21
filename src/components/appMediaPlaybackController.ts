@@ -862,7 +862,7 @@ export class AppMediaPlaybackController extends EventListenerBase<{
       listLoader.reset();
     }
 
-    const reverse = this.searchContext.folderId !== undefined ? false : true;
+    const reverse = this.searchContext?.folderId !== undefined ? false : true;
     if(prev) {
       listLoader.setTargets(prev, next, reverse);
     } else {

@@ -117,7 +117,7 @@ export default class SearchListLoader<Item extends {mid: number, peerId: PeerId}
 
   protected onHistoryMultiappend = async(message: Message.message | Message.messageService) => {
     const {searchContext} = this;
-    if(searchContext.folderId !== undefined) {
+    if(searchContext?.folderId !== undefined) {
       return;
     }
 
@@ -158,7 +158,7 @@ export default class SearchListLoader<Item extends {mid: number, peerId: PeerId}
   public setSearchContext(context: SearchSuperContext) {
     this.searchContext = context;
 
-    if(this.searchContext.folderId !== undefined) {
+    if(this.searchContext?.folderId !== undefined) {
       this.loadedAllUp = true;
 
       if(this.searchContext.nextRate === undefined) {
