@@ -33,6 +33,7 @@ import {MyDocument} from '../../lib/appManagers/appDocsManager';
 import appDownloadManager from '../../lib/appManagers/appDownloadManager';
 import appImManager from '../../lib/appManagers/appImManager';
 import {AppManagers} from '../../lib/appManagers/managers';
+import MP4 from '../../lib/mp4';
 import {NULL_PEER_ID} from '../../lib/mtproto/mtproto_config';
 import apiManagerProxy from '../../lib/mtproto/mtprotoworker';
 import rootScope from '../../lib/rootScope';
@@ -580,7 +581,70 @@ export default async function wrapVideo({doc, altDoc, container, message, boxWid
 
       getCacheContext();
 
+      let triedChromeFix = false;
+
       const onError = (err: any) => {
+        if(!triedChromeFix) {
+          triedChromeFix = true;
+          const mse = new MediaSource();
+          const newUrl = URL.createObjectURL(mse);
+          const oldUrl = video.currentSrc;
+          video.src = newUrl;
+          video.load();
+          if(!video.parentElement && container && !video.poster/*  && !altDoc */) {
+            appendVideo();
+          }
+          mse.onsourceopen = () => {
+            const source = mse.addSourceBuffer('video/mp4; codecs="avc1.64001f, mp4a.40.5"');
+            // source.mode = 'sequence';
+            let timer: ReturnType<typeof setInterval> = undefined;
+            const loadData = (i = 0, time = 0) => {
+              if(timer) {
+                clearTimeout(timer)
+              }
+              timer = setInterval(() => {
+                time = video.currentTime;
+                if(!document.body.contains(video)) clearInterval(timer);
+                mp4.seek(time + (i++ % 10) * 0.3).then((buffer: BufferSource) => {
+                  if(!buffer) {
+                    return
+                  }
+                  console.log('LOADED DATA ', buffer);
+                  if(buffer) {
+                    source.appendBuffer(buffer)
+                  }
+                  if(mp4.loadEnd) {
+                    source.addEventListener('updateend', () => {
+                      mse.endOfStream();
+                    }, {once: true});
+                  }
+                }, (error: any) => {
+                  if(i < 10) {
+                    console.log(error);
+                    timer = setTimeout(() => {
+                      loadData(i + 1)
+                    }, 2000)
+                  }
+                })
+              }, 50);
+            }
+            const mp4: any = new MP4(oldUrl, {chunkSize: 500000});
+            mp4.on('moovReady', () => {
+              console.log('LOADED META ', mp4.packMeta());
+              source.appendBuffer(mp4.packMeta());
+              source.addEventListener('updateend', () => {
+                video.play();
+                // video.playbackRate = appMediaPlaybackController.playbackRate;
+                loadData();
+                source.addEventListener('updateend', () => {
+                  loadData();
+                });
+              }, {once: true});
+            });
+          }
+          return;
+        }
+
         console.error('video load error', video, err);
         if(spanTime) {
           spanTime.classList.add('is-error');

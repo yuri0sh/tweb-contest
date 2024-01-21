@@ -25,7 +25,7 @@ import ProgressivePreloader from './preloader';
 import SwipeHandler, {ZoomDetails} from './swipeHandler';
 import {formatFullSentTime} from '../helpers/date';
 import appNavigationController, {NavigationItem} from './appNavigationController';
-import {Message, PhotoSize} from '../layer';
+import {InputFileLocation, InputGroupCall, Message, PhotoSize} from '../layer';
 import findUpClassName from '../helpers/dom/findUpClassName';
 import renderImageFromUrl, {renderImageFromUrlPromise} from '../helpers/dom/renderImageFromUrl';
 import getVisibleRect from '../helpers/dom/getVisibleRect';
@@ -65,6 +65,8 @@ import handleVideoLeak from '../helpers/dom/handleVideoLeak';
 import Icon from './icon';
 import {replaceButtonIcon} from './button';
 import setCurrentTime from '../helpers/dom/setCurrentTime';
+import MP4 from '../lib/mp4';
+import {MediaSize} from '../helpers/mediaSize';
 
 const ZOOM_STEP = 0.5;
 const ZOOM_INITIAL_VALUE = 1;
@@ -1481,6 +1483,7 @@ export default class AppMediaViewerBase<
       wrapTitlePromise
     ]).then(([_, title]) => {
       replaceContent(this.author.date, formatFullSentTime(timestamp));
+      if(timestamp === 0) replaceContent(this.author.date, 'streaming');
       replaceContent(this.author.nameEl, title);
 
       if(oldAvatar?.node && oldAvatar.node.parentElement) {
@@ -1508,7 +1511,7 @@ export default class AppMediaViewerBase<
     message,
     mediaTimestamp
   }: {
-    media: MyDocument | MyPhoto,
+    media: MyDocument | MyPhoto | InputGroupCall,
     timestamp: number,
     fromId: PeerId | string,
     fromRight: number,
@@ -1530,6 +1533,7 @@ export default class AppMediaViewerBase<
 
     const isDocument = media._ === 'document';
     const isVideo = isDocument && media.mime_type && ((['video', 'gif'] as MyDocument['type'][]).includes(media.type) || media.mime_type.indexOf('video/') === 0);
+    const isLiveStream = media._ === 'inputGroupCall';
 
     if(this.isFirstOpen) {
       // this.targetContainer = targetContainer;
@@ -1618,7 +1622,7 @@ export default class AppMediaViewerBase<
     }
     const maxHeight = windowH - 120 - padding;
     let thumbPromise: Promise<any> = Promise.resolve();
-    const size = setAttachmentSize({
+    const size = isLiveStream ? setAttachmentSize({boxHeight: 608, boxWidth: 1080, element: container, size: new MediaSize(1080, 608)}).photoSize : setAttachmentSize({
       photo: media,
       element: container,
       boxWidth: maxWidth,
@@ -1626,7 +1630,7 @@ export default class AppMediaViewerBase<
       noZoom: mediaSizes.isMobile ? false : true,
       pushDocumentSize: !!(isDocument && media.w && media.h)
     }).photoSize;
-    if(useContainerAsTarget) {
+    if(useContainerAsTarget && !isLiveStream) {
       const cacheContext = await this.managers.thumbsStorage.getCacheContext(media, size.type);
       let img: HTMLImageElement | HTMLCanvasElement;
       if(cacheContext.downloaded) {
@@ -1656,15 +1660,333 @@ export default class AppMediaViewerBase<
       target = target.querySelector('img, video') || target;
     } */
 
-    const supportsStreaming: boolean = !!(isDocument && media.supportsStreaming);
+    const supportsStreaming: boolean = !!(isDocument && media.supportsStreaming || isLiveStream);
     const preloader = supportsStreaming ? this.preloaderStreamable : this.preloader;
 
     const getCacheContext = (type = size?.type) => {
-      return this.managers.thumbsStorage.getCacheContext(media, type);
+      return isLiveStream ? {url: 'test'} : this.managers.thumbsStorage.getCacheContext(media, type);
     };
 
     let setMoverPromise: Promise<void>;
-    if(isVideo) {
+
+    if(isLiveStream) {
+      // //////this.log('will wrap video', media, size);
+
+      const middleware = mover.middlewareHelper.get();
+      // потому что для safari нужно создать элемент из event'а
+      const useController = true;
+      const video = /* useController ?
+        appMediaPlaybackController.addMedia(message, false, true) as HTMLVideoElement :
+        */createVideo({pip: useController, middleware});
+      video.width = 1080;
+      video.height= 608;
+
+      if(this.wholeDiv.classList.contains('no-forwards')) {
+        video.addEventListener('contextmenu', cancelEvent);
+      }
+
+      const set = () => this.setMoverToTarget(target, false, fromRight).then(async({onAnimationEnd}) => {
+      // return; // set and don't move
+      // if(wasActive) return;
+        // return;
+
+        const div = mover.firstElementChild && mover.firstElementChild.classList.contains('media-viewer-aspecter') ? mover.firstElementChild : mover;
+
+        const moverVideo = mover.querySelector('video');
+        if(moverVideo) {
+          moverVideo.remove();
+        }
+
+        // video.src = '';
+
+        video.setAttribute('playsinline', 'true');
+
+        const mse = new MediaSource();
+        const url = URL.createObjectURL(mse);
+        const ssrc = (Math.random() * 10_000) | 0;
+        const defaultInitString = JSON.stringify({'fingerprints': [], 'pwd': '', ssrc, 'ssrc-groups': [], 'ufrag': ''});
+        await this.managers.appGroupCallsManager.joinGroupCall(media.id, {_:'dataJSON', data: defaultInitString}, {'type': 'main'})
+        const ret = await this.managers.appGroupCallsManager.getGroupCallStreamChannels(media.id);
+        const input = media;
+        const requestChunk = async(time: number) => {
+          const i = 0;
+          const test: InputFileLocation.inputGroupCallStream = {_: 'inputGroupCallStream', call: input, time_ms: (ret.channels[i].last_timestamp_ms as number) + time, scale: ret.channels[i].scale, video_quality: 2, video_channel: ret.channels[i].channel};
+          try {
+            const file = await this.managers.apiFileManager.requestFilePart(2, test, 0, 1_048_576);
+            // document.createElement('video').src = URL.createObjectURL((window as any).file);
+            return file.bytes;
+          } catch(e) {
+            console.log(e);
+            return null;
+          }
+        }
+
+        mse.onsourceopen = () => {
+          const source = mse.addSourceBuffer('video/mp4; codecs="avc1.64001f, opus"');
+          source.mode = 'sequence';
+          let init = true;
+          let lastLoaded = -1;
+          const setVideoSrc = async(time: number) => {
+            if(video.src !== url) {
+              clearInterval(interval);
+              this.managers.appGroupCallsManager.hangUp(media.id, ssrc);
+              return;
+            }
+            const buffer = await requestChunk(time);
+            console.log('GOT BUFFER ', time, buffer);
+            const blob = new Blob([buffer.slice(32)], {type: 'video/mp4'});
+            const mp4: any = new MP4(URL.createObjectURL(blob));
+            mp4.on('moovReady', () => {
+              console.log('PARSED ', time, mp4.packMeta())
+              if(init) {
+                init = false;
+                source.appendBuffer(mp4.packMeta());
+              }
+              mp4.seek(0).then((res: BufferSource) => {
+                if(time < lastLoaded) {return};
+                const act = () => {
+                  lastLoaded = time;
+                  console.log('APPENDING ', time, res);
+                  source.appendBuffer(res);
+                }
+                if(source.updating) {
+                  source.addEventListener('updateend', act, {once: true});
+                  return;
+                } else {
+                  act();
+                }
+              });
+            });
+          }
+
+          let time = 0;
+          const interval = setInterval(async() => setVideoSrc(time++ * 1000), 1000);
+        }
+
+        // * fix for playing video if viewer is closed (https://contest.com/javascript-web-bonus/entry1425#issue11629)
+        video.addEventListener('timeupdate', () => {
+          if(this.tempId !== tempId) {
+            video.pause();
+          }
+        });
+
+        this.addEventListener('setMoverAfter', () => {
+          video.src = '';
+          video.load();
+        }, {once: true});
+
+        video.autoplay = true;
+
+        if(mediaTimestamp !== undefined) {
+          setCurrentTime(video, mediaTimestamp);
+        }
+
+        // if(!video.parentElement) {
+        div.append(video);
+        // }
+
+        const canPlayThrough = new Promise((resolve) => {
+          video.addEventListener('canplay', resolve, {once: true});
+        });
+
+        const createPlayer = () => {
+          video.dataset.ckin = 'default';
+          video.dataset.overlay = '1';
+
+          Promise.all([canPlayThrough, onAnimationEnd]).then(() => {
+            if(this.tempId !== tempId) {
+              return;
+            }
+
+            // const play = useController ? appMediaPlaybackController.willBePlayedMedia === video : true;
+            const play = true;
+            const player = this.videoPlayer = new VideoPlayer({
+              video,
+              play,
+              streamable: supportsStreaming,
+              livestream: true,
+              onPlaybackRackMenuToggle: (open) => {
+                this.wholeDiv.classList.toggle('hide-caption', !!open);
+              },
+              onPip: (pip) => {
+                const otherMediaViewer = (window as any).appMediaViewer;
+                if(!pip && otherMediaViewer && otherMediaViewer !== this) {
+                  this.releaseSingleMedia = undefined;
+                  this.close();
+                  return;
+                }
+
+                const mover = this.moversContainer.lastElementChild as HTMLElement;
+                mover.classList.toggle('hiding', pip);
+                this.toggleWholeActive(!pip);
+                this.toggleOverlay(!pip);
+                this.toggleGlobalListeners(!pip);
+
+                if(this.navigationItem) {
+                  if(pip) appNavigationController.removeItem(this.navigationItem);
+                  else appNavigationController.pushItem(this.navigationItem);
+                }
+
+                if(useController) {
+                  if(pip) {
+                    // appMediaPlaybackController.toggleSwitchers(true);
+
+                    this.releaseSingleMedia(false);
+                    this.releaseSingleMedia = undefined;
+
+                    appMediaPlaybackController.setPictureInPicture(video);
+                  } else {
+                    this.releaseSingleMedia = appMediaPlaybackController.setSingleMedia(video, message as Message.message);
+                  }
+                }
+              },
+              onPipClose: () => {
+                // this.target = undefined;
+                // this.toggleWholeActive(false);
+                // this.toggleOverlay(false);
+                this.close();
+              }
+            });
+            player.addEventListener('toggleControls', (show) => {
+              this.wholeDiv.classList.toggle('has-video-controls', show);
+            });
+
+            this.addEventListener('setMoverBefore', () => {
+              this.wholeDiv.classList.remove('has-video-controls');
+              this.videoPlayer.cleanup();
+              this.videoPlayer = undefined;
+            }, {once: true});
+
+            if(this.isZooming) {
+              this.videoPlayer.lockControls(false);
+            }
+            /* div.append(video);
+            mover.append(player.wrapper); */
+          });
+        };
+
+        if(supportsStreaming) {
+          onAnimationEnd.then(() => {
+            if(video.readyState < video.HAVE_FUTURE_DATA) {
+              // console.log('ppp 1');
+              preloader.attach(mover, true);
+            }
+
+            /* canPlayThrough.then(() => {
+              preloader.detach();
+            }); */
+          });
+
+          const attachCanPlay = () => {
+            video.addEventListener('canplay', () => {
+              // console.log('ppp 2');
+              preloader.detach();
+              video.parentElement.classList.remove('is-buffering');
+            }, {once: true});
+          };
+
+          video.addEventListener('waiting', () => {
+            const loading = video.networkState === video.NETWORK_LOADING;
+            const isntEnoughData = video.readyState < video.HAVE_FUTURE_DATA;
+
+            // this.log('video waiting for progress', loading, isntEnoughData);
+            if(loading && isntEnoughData) {
+              attachCanPlay();
+
+              // console.log('ppp 3');
+              preloader.attach(mover, true);
+
+              // поставлю класс для плеера, чтобы убрать большую иконку пока прелоадер на месте
+              video.parentElement.classList.add('is-buffering');
+            }
+          });
+
+          if(this.wholeDiv.classList.contains('no-forwards')) {
+            video.addEventListener('contextmenu', (e) => {
+              cancelEvent(e);
+            });
+          }
+
+          attachCanPlay();
+        }
+
+        // if(!video.src || media.url !== video.src) {
+        const load = async() => {
+          /* if(useController) {
+              appMediaPlaybackController.resolveWaitingForLoadMedia(message.peerId, message.mid, message.pFlags.is_scheduled);
+            } */
+
+          if(!supportsStreaming) {
+            onAnimationEnd.then(async() => {
+              if(!url) {
+                // console.log('ppp 4');
+                preloader.attach(mover, true);
+              }
+            });
+          }
+
+          Promise.all([onAnimationEnd]).then(async() => {
+            if(this.tempId !== tempId) {
+              this.log.warn('media viewer changed video');
+              return;
+            }
+
+
+            const onUnsupported = () => {
+              toastNew({
+                langPackKey: IS_MOBILE ? 'Video.Unsupported.Mobile' : 'Video.Unsupported.Desktop'
+              });
+
+              const error = video.error;
+              if(error && error.code !== 4) {
+                this.log.error('Error ' + error.code + '; details: ' + error.message);
+              }
+
+              preloader?.detach();
+            };
+
+            // handleVideoLeak(video, onMediaLoad(video)).catch(onUnsupported);
+            video.addEventListener('error', onUnsupported, {once: true});
+            middleware.onClean(() => {
+              video.removeEventListener('error', onUnsupported);
+            });
+
+            if(target instanceof SVGSVGElement/*  && (video.parentElement || !isSafari) */) { // if video exists
+              // if(!video.parentElement) {
+              div.firstElementChild.lastElementChild.append(video);
+              // }
+            } else {
+              renderImageFromUrl(video, url);
+            }
+
+            // * have to set options (especially playbackRate) after src
+            // * https://github.com/videojs/video.js/issues/2516
+            if(useController) {
+              this.releaseSingleMedia = appMediaPlaybackController.setSingleMedia(video, message as Message.message);
+
+              this.addEventListener('setMoverBefore', () => {
+                if(this.releaseSingleMedia) {
+                  this.releaseSingleMedia();
+                  this.releaseSingleMedia = undefined;
+                }
+              }, {once: true});
+            }
+
+            video.src = url;
+            this.updateMediaSource(target, url, 'video');
+
+            createPlayer();
+          });
+
+          return Promise.resolve();
+        };
+
+        this.lazyLoadQueue.unshift({load});
+        // } else createPlayer();
+      });
+
+      setMoverPromise = thumbPromise.then(set);
+    } else if(isVideo) {
       // //////this.log('will wrap video', media, size);
 
       const middleware = mover.middlewareHelper.get();
@@ -1879,7 +2201,66 @@ export default class AppMediaViewerBase<
 
             const url = (await getCacheContext()).url;
 
+            let triedChromeFix = false;
+
             const onUnsupported = () => {
+              if(!triedChromeFix) {
+                triedChromeFix = true;
+                const mse = new MediaSource();
+                const newUrl = URL.createObjectURL(mse);
+                video.src = newUrl;
+                video.load();
+                mse.onsourceopen = () => {
+                  const source = mse.addSourceBuffer('video/mp4; codecs="avc1.64001f, mp4a.40.5"');
+                  // source.mode = 'sequence';
+                  let timer: ReturnType<typeof setInterval> = undefined;
+                  const loadData = (i = 0, time = 0) => {
+                    if(timer) {
+                      clearTimeout(timer)
+                    }
+                    timer = setInterval(() => {
+                      time = video.currentTime;
+                      if(!document.body.contains(video)) clearInterval(timer);
+                      mp4.seek(time + (i++ % 10) * 0.3).then((buffer: BufferSource) => {
+                        if(!buffer) {
+                          return
+                        }
+                        console.log('CONVERTED VIDEO DATA ', buffer);
+                        if(buffer) {
+                          source.appendBuffer(buffer)
+                        }
+                        if(mp4.loadEnd) {
+                          source.addEventListener('updateend', () => {
+                            mse.endOfStream();
+                          }, {once: true});
+                        }
+                      }, (error: any) => {
+                        if(i < 10) {
+                          console.log(error);
+                          timer = setTimeout(() => {
+                            loadData(i + 1)
+                          }, 2000)
+                        }
+                      })
+                    }, 50);
+                  }
+                  const mp4: any = new MP4(url, {});
+                  mp4.on('moovReady', () => {
+                    console.log('LOADED META ', mp4.packMeta());
+                    source.appendBuffer(mp4.packMeta());
+                    source.addEventListener('updateend', () => {
+                      video.play();
+                      video.playbackRate = appMediaPlaybackController.playbackRate;
+                      loadData();
+                      source.addEventListener('updateend', () => {
+                        loadData();
+                      });
+                    }, {once: true});
+                  });
+                }
+                return;
+              }
+
               toastNew({
                 langPackKey: IS_MOBILE ? 'Video.Unsupported.Mobile' : 'Video.Unsupported.Desktop'
               });

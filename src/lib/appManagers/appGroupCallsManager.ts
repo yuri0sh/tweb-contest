@@ -343,6 +343,12 @@ export class AppGroupCallsManager extends AppManager {
     });
   }
 
+  public async getGroupCallStreamChannels(groupCallId: GroupCallId) {
+    const groupCallInput = this.getGroupCallInput(groupCallId);
+
+    return this.apiManager.invokeApi('phone.getGroupCallStreamChannels', {call: groupCallInput});
+  }
+
   public async joinGroupCall(groupCallId: GroupCallId, params: DataJSON, options: GroupCallConnectionInstance['options']) {
     const groupCallInput = this.getGroupCallInput(groupCallId);
     let promise: Promise<Updates>;

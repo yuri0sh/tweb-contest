@@ -442,6 +442,8 @@ export class AppMediaPlaybackController extends EventListenerBase<{
       return;
     }
 
+    if(!message) return;
+
     await onMediaLoad(playingMedia, undefined, false); // have to wait for load, otherwise on macOS won't set
 
     const doc = getMediaFromMessage(message, true) as MyDocument;

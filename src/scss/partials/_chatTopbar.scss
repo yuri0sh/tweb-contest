@@ -72,11 +72,13 @@ body.is-right-column-shown {
   --pinned-floating-message-height: 0px;
   --pinned-floating-requests-height: 0px;
   --pinned-floating-actions-height: 0px;
-	--pinned-floating-height: calc(var(--pinned-floating-audio-height) + var(--pinned-floating-message-height) + var(--pinned-floating-requests-height) + var(--pinned-floating-actions-height) + var(--topbar-floating-call-height));
+  --pinned-floating-call-height: 0px;
+	--pinned-floating-height: calc(var(--pinned-floating-audio-height) + var(--pinned-floating-message-height) + var(--pinned-floating-requests-height) + var(--pinned-floating-actions-height) + var(--topbar-floating-call-height) + var(--pinned-floating-call-height));
   
   --pinned-container-height: 3.25rem;
 	--pinned-audio-height: var(--pinned-container-height);
 	--pinned-message-height: var(--pinned-container-height);
+	--pinned-call-height: 3.5rem;
 
 	width: 100%;
 	z-index: 2;
@@ -95,6 +97,10 @@ body.is-right-column-shown {
 		left: 0;
 		box-shadow: 0px 1px 5px -1px rgba(0, 0, 0, .21);
 		pointer-events: none;
+	}
+
+	&.is-pinned-call-floating {
+		--pinned-floating-call-height: var(--pinned-call-height);
 	}
 
 	&.is-pinned-audio-floating {
@@ -120,9 +126,15 @@ body.is-right-column-shown {
 		}
 	}
 
-	&.is-pinned-audio-floating.is-pinned-message-floating {
+	&.is-pinned-call-floating {
+		.pinned-call {
+			top: calc(var(--topbar-height) + var(--pinned-floating-audio-height))
+		}
+	}
+
+	&.is-pinned-message-floating {
 		.pinned-message {
-			top: calc(var(--topbar-height) + var(--pinned-audio-height));
+			top: calc(var(--topbar-height) + var(--pinned-floating-audio-height) + var(--pinned-floating-call-height));
 
 			&:before {
 				border-top: none;

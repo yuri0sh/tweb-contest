@@ -48,6 +48,7 @@ export default class PinnedContainer {
     listenerSetter: PinnedContainer['listenerSetter'],
     className: PinnedContainer['className'],
     divAndCaption: PinnedContainer['divAndCaption'],
+    unclosable?: boolean,
     onClose?: PinnedContainer['onClose'],
     floating?: PinnedContainer['floating']
   }) {
@@ -61,7 +62,6 @@ export default class PinnedContainer {
       divAndCaption.content.classList.add(CLASSNAME_BASE + '-content');
     }
 
-    this.btnClose = ButtonIcon(`close ${CLASSNAME_BASE + '-close'} pinned-${className}-close`, {noRipple: true});
 
     this.wrapper = document.createElement('div');
     this.wrapper.classList.add(CLASSNAME_BASE + '-wrapper', `pinned-${className}-wrapper`);
@@ -69,13 +69,15 @@ export default class PinnedContainer {
 
     this.wrapperUtils = document.createElement('div');
     this.wrapperUtils.classList.add(CLASSNAME_BASE + '-wrapper-utils', `pinned-${className}-wrapper-utils`);
-    this.wrapperUtils.append(this.btnClose);
+    if(!options.unclosable) {
+      this.btnClose = ButtonIcon(`close ${CLASSNAME_BASE + '-close'} pinned-${className}-close`, {noRipple: true});
+      this.wrapperUtils.append(this.btnClose);
+      this.attachOnCloseEvent(this.btnClose);
+    }
 
     this.wrapper.append(...(divAndCaption ? Array.from(divAndCaption.container.children) : []), this.wrapperUtils);
 
     divAndCaption && divAndCaption.container.append(this.wrapper/* , this.close */);
-
-    this.attachOnCloseEvent(this.btnClose);
   }
 
   public attachOnCloseEvent(elem: HTMLElement) {

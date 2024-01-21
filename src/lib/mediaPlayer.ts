@@ -40,6 +40,8 @@ export default class VideoPlayer extends ControlsHover {
   protected pipButton: HTMLElement;
   protected toggles: HTMLElement[];
 
+  protected livestream: boolean;
+
   /* protected videoParent: HTMLElement;
   protected videoWhichChild: number; */
 
@@ -50,6 +52,7 @@ export default class VideoPlayer extends ControlsHover {
   constructor({
     video,
     play = false,
+    livestream = false,
     streamable = false,
     duration,
     onPlaybackRackMenuToggle,
@@ -58,6 +61,7 @@ export default class VideoPlayer extends ControlsHover {
   }: {
     video: HTMLVideoElement,
     play?: boolean,
+    livestream?: boolean,
     streamable?: boolean,
     duration?: number,
     onPlaybackRackMenuToggle?: VideoPlayer['onPlaybackRackMenuToggle'],
@@ -66,9 +70,14 @@ export default class VideoPlayer extends ControlsHover {
   }) {
     super();
 
+    this.livestream = livestream;
+
     this.video = video;
     this.wrapper = document.createElement('div');
     this.wrapper.classList.add('ckin__player');
+    if(livestream) {
+      this.wrapper.classList.add('live');
+    }
 
     this.onPlaybackRackMenuToggle = onPlaybackRackMenuToggle;
     this.onPip = onPip;
@@ -151,7 +160,7 @@ export default class VideoPlayer extends ControlsHover {
       leftControls.prepend(leftToggle);
 
       const rightControls = wrapper.querySelector('.right-controls') as HTMLElement;
-      this.playbackRateButton = ButtonIcon(` ${skin}__button btn-menu-toggle night`, {noRipple: true});
+      if(!this.livestream) this.playbackRateButton = ButtonIcon(` ${skin}__button btn-menu-toggle night`, {noRipple: true});
       if(!IS_MOBILE && document.pictureInPictureEnabled) {
         this.pipButton = ButtonIcon(`pip ${skin}__button`, {noRipple: true});
       }
@@ -353,7 +362,7 @@ export default class VideoPlayer extends ControlsHover {
       } : undefined
     });
     this.setPlaybackRateIcon();
-    this.playbackRateButton.append(btnMenu);
+    if(!this.livestream) this.playbackRateButton.append(btnMenu);
   }
 
   protected setPlaybackRateIcon() {

@@ -59,6 +59,8 @@ import PopupBoostsViaGifts from '../popups/boostsViaGifts';
 import AppStatisticsTab from '../sidebarRight/tabs/statistics';
 import {ChatType} from './chat';
 import AppBoostsTab from '../sidebarRight/tabs/boosts';
+import AppMediaViewerLivestream from '../appMediaViewerLiveStream';
+import ChatCallJoin from './callJoin';
 
 type ButtonToVerify = {element?: HTMLElement, verify: () => boolean | Promise<boolean>};
 
@@ -85,6 +87,7 @@ export default class ChatTopbar {
   private chatActions: ChatActions;
   private chatRequests: ChatRequests;
   private chatAudio: ChatAudio;
+  private chatLiveStreamJoin: ChatCallJoin;
   public pinnedMessage: ChatPinnedMessage;
 
   private setUtilsRAF: number;
@@ -162,6 +165,7 @@ export default class ChatTopbar {
     this.chatAudio = new ChatAudio(this, this.chat, this.managers);
     this.chatRequests = new ChatRequests(this, this.chat, this.managers);
     this.chatActions = new ChatActions(this, this.chat, this.managers);
+    this.chatLiveStreamJoin = new ChatCallJoin(this, this.chat, this.managers);
 
     if(this.menuButtons.length) {
       this.btnMore = ButtonMenuToggle({
@@ -207,6 +211,10 @@ export default class ChatTopbar {
 
     if(this.chatRequests) {
       this.container.append(this.chatRequests.divAndCaption.container);
+    }
+
+    if(this.chatLiveStreamJoin) {
+      this.container.append(this.chatLiveStreamJoin.divAndCaption.container);
     }
 
     if(this.chatActions) {
@@ -625,8 +633,18 @@ export default class ChatTopbar {
     this.chat.appImManager.callUser(this.peerId.toUserId(), type);
   }
 
-  private onJoinGroupCallClick = () => {
-    this.chat.appImManager.joinGroupCall(this.peerId);
+  public onJoinGroupCallClick = async() => {
+    const chatFull = await this.managers.appProfileManager.getCachedFullChat(this.peerId.toChatId());
+    let groupCall;
+    if(chatFull.call) groupCall = await this.managers.appGroupCallsManager.getGroupCallFull(chatFull.call?.id);
+    if(groupCall?._ === 'groupCall' && groupCall.pFlags.rtmp_stream) {
+      new AppMediaViewerLivestream().openMedia({
+        chatId: this.peerId.toChatId(),
+        groupCallId: groupCall.id
+      });
+    } else {
+      this.chat.appImManager.joinGroupCall(this.peerId);
+    }
   };
 
   private get peerId() {
@@ -812,12 +830,14 @@ export default class ChatTopbar {
     this.pinnedMessage?.destroy(); // * возможно это можно не делать
     this.chatAudio?.destroy();
     this.chatRequests?.destroy();
+    this.chatLiveStreamJoin?.destroy();
     this.chatActions?.destroy();
 
     delete this.pinnedMessage;
     delete this.chatAudio;
     delete this.chatRequests;
     delete this.chatActions;
+    delete this.chatLiveStreamJoin;
   }
 
   public cleanup() {
@@ -870,6 +890,8 @@ export default class ChatTopbar {
 
     this.status?.destroy();
     const status = this.status = this.createStatus();
+
+    this.chatLiveStreamJoin.setPeerId(peerId);
 
     const promises = [
       this.managers.appPeersManager.isBroadcast(peerId),
@@ -1112,6 +1134,7 @@ export default class ChatTopbar {
       this.chatAudio,
       this.chatRequests,
       this.chatActions,
+      this.chatLiveStreamJoin,
       this.pinnedMessage?.pinnedMessageContainer
     ].filter(Boolean);
     const count = containers.reduce((acc, container) => {
